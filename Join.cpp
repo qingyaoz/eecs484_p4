@@ -43,12 +43,14 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 	vector<uint> disk_pages; 
 	for (Bucket& bucket : partitions) {
         unordered_map<uint, vector<Record>> hashtable;
+		// unordered_map<uint, vector<bool>> matched; // record whether match
         for (uint left_page_id : bucket.get_left_rel()) {
             Page* page = mem->mem_page(0);
             mem->loadFromDisk(disk, left_page_id, 0);
             for (uint i = 0; i < page->size(); ++i) { // each record in page
                 Record r = page->get_record(i);
-                hashtable[r.probe_hash()].push_back(r);
+                hashtable[r.probe_hash() % (MEM_SIZE_IN_PAGE - 2)].push_back(r);
+				// matched[r.probe_hash()].push_back(false); // initialize with unmatch
             }
         }
 
@@ -57,7 +59,7 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 			mem->loadFromDisk(disk, right_page_id, 1);
 			for (uint i = 0; i < page->size(); ++i) { // each record in page
 				Record s = page->get_record(i);
-				uint hash_value = s.probe_hash(); // get hash value for that record
+				uint hash_value = s.probe_hash() % (MEM_SIZE_IN_PAGE - 2); // get hash value for that record
 
 				if (hashtable.count(hash_value)) { // if the slot have records
 					for (Record& r : hashtable[hash_value]) { // iterate every records in the slot
