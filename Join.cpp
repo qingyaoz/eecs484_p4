@@ -31,12 +31,15 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
 			}
 			mem->mem_page(bucket_id)->loadRecord(page->get_record(record_id));
 		}
+		//clean input page 
+		mem->mem_page(MEM_SIZE_IN_PAGE - 1)->reset();
 	}
 	//flush all records in memory to disk 
 	for (uint k = 0; k < MEM_SIZE_IN_PAGE - 1; k++) {
 		if (!mem->mem_page(k)->empty()) {
 			uint flush_idx = mem->flushToDisk(disk, k);
 			partitions[k].add_left_rel_page(flush_idx);
+			//mem->mem_page(k)->reset();
 		}
 	}
 
@@ -54,6 +57,7 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
 			}
 			mem->mem_page(bucket_id)->loadRecord(page->get_record(record_id));
 		}
+		mem->mem_page(MEM_SIZE_IN_PAGE - 1)->reset();
 	}
 	//flush all records in memory to disk 
 	for (uint k = 0; k < MEM_SIZE_IN_PAGE - 1; k++) {
@@ -123,7 +127,7 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 							// output page is full, need to flush to disk
 							uint flush_idx = mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1);
 							disk_pages.push_back(flush_idx);
-							output_page->reset();
+							//output_page->reset();
 						}
 						//load the pair
 						output_page->loadPair(temp->get_record(i), r);
