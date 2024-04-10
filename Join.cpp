@@ -73,49 +73,99 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
 vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 	// TODO: implement probe phase
 	//no hash table 
+	//reserve two pages for input and output
+	Page* output_page = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+	Page* input_page = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
+
 	vector<uint> disk_pages; 
+
 	for (Bucket& bucket : partitions) {
-        unordered_map<uint, vector<Record>> hashtable;
+        //unordered_map<uint, vector<Record>> hashtable;
 		// unordered_map<uint, vector<bool>> matched; // record whether match
-        for (uint left_page_id : bucket.get_left_rel()) {
-            Page* page = mem->mem_page(0);
-            mem->loadFromDisk(disk, left_page_id, 0);
-            for (uint i = 0; i < page->size(); ++i) { // each record in page
-                Record r = page->get_record(i);
-                hashtable[r.probe_hash() % (MEM_SIZE_IN_PAGE - 2)].push_back(r);
-				// matched[r.probe_hash()].push_back(false); // initialize with unmatch
-            }
-        }
 
-		for (uint right_page_id : bucket.get_right_rel()) {
-			Page* page = mem->mem_page(1);
-			mem->loadFromDisk(disk, right_page_id, 1);
-			for (uint i = 0; i < page->size(); ++i) { // each record in page
-				Record s = page->get_record(i);
-				uint hash_value = s.probe_hash() % (MEM_SIZE_IN_PAGE - 2); // get hash value for that record
-
-				if (hashtable.count(hash_value)) { // if the slot have records
-					for (Record& r : hashtable[hash_value]) { // iterate every records in the slot
-						if (r == s) { // test whether it equail to the current one
-							Page* output_page = mem->mem_page(2);
-							if (output_page->full()) {
-								uint disk_page_id = mem->flushToDisk(disk, 2); // send the full page with result to disk
-								disk_pages.push_back(disk_page_id);
-								output_page->reset();
-							}
-							output_page->loadPair(r, s);
-						}
-					}
-				}
-			}
+		//“smaller relation” is defined as the relation with the fewer total number of records.
+		bool isLeftSmaller = bucket.num_left_rel_record <= bucket.num_right_rel_record;
+		vector<uint> smaller_rel_pages;
+		vector<uint> larger_rel_pages;
+		if (isLeftSmaller) {
+			smaller_rel_pages = bucket.get_left_rel();
+			larger_rel_pages = bucket.get_right_rel();
+		} else {
+			smaller_rel_pages = bucket.get_right_rel();
+			larger_rel_pages = bucket.get_left_rel();
 		}
 
-		// Flush the last page if it's not empty.
-        Page* output_page = mem->mem_page(2);
-        if (!output_page->empty()) {
-            uint disk_page_id = mem->flushToDisk(disk, 2);
-            disk_pages.push_back(disk_page_id);
+        for (uint page_id : smaller_rel_pages) {
+			//Page* page = mem->mem_page(0);
+			mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 2);
+            for (uint i = 0; i < input_page->size(); ++i) { // each record in page
+                Record r = input_page->get_record(i);
+                //hashtable[r.probe_hash() % (MEM_SIZE_IN_PAGE - 2)].push_back(r);
+				// matched[r.probe_hash()].push_back(false); // initialize with unmatch
+				// add to mem
+				mem->mem_page(r.probe_hash() % (MEM_SIZE_IN_PAGE - 2))->loadRecord(r);
+            }
+			//clean page
+			mem->mem_page(MEM_SIZE_IN_PAGE - 2)->reset();
         }
+
+        for (uint page_id : larger_rel_pages) {
+			mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 2);
+            for (uint i = 0; i < input_page->size(); ++i) { // each record in page
+                Record r = input_page->get_record(i);
+                uint hash = r.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
+				// find match?
+				Page* temp = mem->mem_page(hash);
+				for (uint i = 0; i < temp->size(); i++) {
+					if (temp->get_record(i) == r) {
+						// found match
+						if (output_page->full()) {
+							// output page is full, need to flush to disk
+							uint flush_idx = mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1);
+							disk_pages.push_back(flush_idx);
+							output_page->reset();
+						}
+						//load the pair
+						output_page->loadPair(temp->get_record(i), r);
+					}
+				}
+				//mem->mem_page(r.probe_hash() % (MEM_SIZE_IN_PAGE - 2))->loadRecord(r);
+            }
+			//clean page
+			mem->mem_page(MEM_SIZE_IN_PAGE - 2)->reset();
+        }
+		// for (uint right_page_id : bucket.get_right_rel()) {
+		// 	Page* page = mem->mem_page(1);
+		// 	mem->loadFromDisk(disk, right_page_id, 1);
+		// 	for (uint i = 0; i < page->size(); ++i) { // each record in page
+		// 		Record s = page->get_record(i);
+		// 		uint hash_value = s.probe_hash() % (MEM_SIZE_IN_PAGE - 2); // get hash value for that record
+		// 		if (hashtable.count(hash_value)) { // if the slot have records
+		// 			for (Record& r : hashtable[hash_value]) { // iterate every records in the slot
+		// 				if (r == s) { // test whether it equail to the current one
+		// 					Page* output_page = mem->mem_page(2);
+		// 					if (output_page->full()) {
+		// 						uint disk_page_id = mem->flushToDisk(disk, 2); // send the full page with result to disk
+		// 						disk_pages.push_back(disk_page_id);
+		// 						output_page->reset();
+		// 					}
+		// 					output_page->loadPair(r, s);
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		// Clear the hash table for the next partition
+		for (uint i = 0; i < MEM_SIZE_IN_PAGE - 2; i++) {
+			mem->mem_page(i)->reset();
+		}
+	}
+	// Flush the last page if it's not empty.
+	if (!output_page->empty()) {
+		uint disk_page_id = mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1);
+		disk_pages.push_back(disk_page_id);
+		output_page->reset();
 	}
 
 	return disk_pages;
