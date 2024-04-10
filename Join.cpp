@@ -13,21 +13,53 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
 	// TODO: implement partition phase
 	vector<Bucket> partitions(MEM_SIZE_IN_PAGE - 1, Bucket(disk));
 	// partite left relation
+	Page* page = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
 	for (uint page_id = left_rel.first; page_id < left_rel.second; page_id++) {
-		Page* page = disk->diskRead(page_id);
+		//Page* page = disk->diskRead(page_id);//dont call load to  in memory
+		mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 1);
+
 		for (uint record_id = 0; record_id < page->size(); record_id++) {
 			Record record = page->get_record(record_id);
             uint bucket_id = record.partition_hash() % (MEM_SIZE_IN_PAGE - 1);
-            partitions[bucket_id].add_left_rel_page(page_id);
+			//load record and put it in memory corresponding to bucket and page
+			//if full put the page in disk, (flush)
+			if (mem->mem_page(bucket_id)->full()) {
+				uint flush_idx = mem->flushToDisk(disk, bucket_id);
+				//only if full
+				//partition hold disk page
+				partitions[bucket_id].add_left_rel_page(flush_idx);
+			}
+			mem->mem_page(bucket_id)->loadRecord(page->get_record(record_id));
 		}
 	}
+	//flush all records in memory to disk 
+	for (uint k = 0; k < MEM_SIZE_IN_PAGE - 1; k++) {
+		if (!mem->mem_page(k)->empty()) {
+			uint flush_idx = mem->flushToDisk(disk, k);
+			partitions[k].add_left_rel_page(flush_idx);
+		}
+	}
+
+
 	// partite right relation
 	for (uint page_id = right_rel.first; page_id < right_rel.second; page_id++) {
-		Page* page = disk->diskRead(page_id);
+		mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 1);
+
 		for (uint record_id = 0; record_id < page->size(); record_id++) {
 			Record record = page->get_record(record_id);
-            uint bucket_id = record.partition_hash() % (MEM_SIZE_IN_PAGE - 1);
-            partitions[bucket_id].add_right_rel_page(page_id);
+			uint bucket_id = record.partition_hash() % (MEM_SIZE_IN_PAGE - 1);
+			if (mem->mem_page(bucket_id)->full()) {
+				uint flush_idx = mem->flushToDisk(disk, bucket_id);
+				partitions[bucket_id].add_right_rel_page(flush_idx);
+			}
+			mem->mem_page(bucket_id)->loadRecord(page->get_record(record_id));
+		}
+	}
+	//flush all records in memory to disk 
+	for (uint k = 0; k < MEM_SIZE_IN_PAGE - 1; k++) {
+		if (!mem->mem_page(k)->empty()) {
+			uint flush_idx = mem->flushToDisk(disk, k);
+			partitions[k].add_right_rel_page(flush_idx);
 		}
 	}
 
@@ -40,6 +72,7 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
  */
 vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 	// TODO: implement probe phase
+	//no hash table 
 	vector<uint> disk_pages; 
 	for (Bucket& bucket : partitions) {
         unordered_map<uint, vector<Record>> hashtable;
